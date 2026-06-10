@@ -34,7 +34,7 @@ int main(int argc, char *argv[]) {
     int total_tiles = squares_x * squares_y;
 
     if (rank == 0) {
-        // Rank 0 coordena e monta a imagem final
+        // Aloca a imagem final contígua na memória
         unsigned char *image = malloc(hxres * hyres * 3);
         if (!image) {
             fprintf(stderr, "Erro alocação imagem\n");
@@ -43,9 +43,8 @@ int main(int argc, char *argv[]) {
 
         int next_tile = 0;
         int active_workers = size - 1;
-        int frame_id = 0;
 
-        // Envia tarefas iniciais
+        // Envia tarefas iniciais para os processos trabalhadores disponíveis
         for (int dest = 1; dest < size && next_tile < total_tiles; ++dest) {
             Tile t = {
                 .x = (next_tile % squares_x) * square_size,
@@ -57,7 +56,7 @@ int main(int argc, char *argv[]) {
             next_tile++;
         }
 
-        // Recebe resultados e envia novos trabalhos até acabar
+        // Recebe os resultados dos blocos computados e despacha novos trabalhos
         while (active_workers > 0) {
             MPI_Status status;
             Tile meta;
@@ -67,25 +66,15 @@ int main(int argc, char *argv[]) {
             unsigned char *buf = malloc(size_buf);
             MPI_Recv(buf, size_buf, MPI_UNSIGNED_CHAR, status.MPI_SOURCE, TAG_DONE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            // Copia para imagem final
+            // Cópia eficiente dos blocos para o buffer da imagem principal usando memcpy
             for (int dy = 0; dy < meta.h; ++dy) {
-                for (int dx = 0; dx < meta.w; ++dx) {
-                    int dst = ((meta.y + dy) * hxres + (meta.x + dx)) * 3;
-                    int src = (dy * meta.w + dx) * 3;
-                    memcpy(&image[dst], &buf[src], 3);
-                }
+                int dst_offset = ((meta.y + dy) * hxres + meta.x) * 3;
+                int src_offset = (dy * meta.w) * 3;
+                memcpy(&image[dst_offset], &buf[src_offset], meta.w * 3);
             }
             free(buf);
 
-            // Salva frame parcial
-            char fname[64];
-            sprintf(fname, "frame_%04d.ppm", frame_id++);
-            FILE *fp = fopen(fname, "wb");
-            fprintf(fp, "P6\n%d %d\n255\n", hxres, hyres);
-            fwrite(image, 1, hxres * hyres * 3, fp);
-            fclose(fp);
-
-            // Envia próxima tarefa ou sinal de parada
+            // Envia a próxima tarefa da fila ou comando de finalização
             if (next_tile < total_tiles) {
                 Tile t = {
                     .x = (next_tile % squares_x) * square_size,
@@ -96,28 +85,41 @@ int main(int argc, char *argv[]) {
                 MPI_Send(&t, sizeof(Tile), MPI_BYTE, status.MPI_SOURCE, TAG_WORK, MPI_COMM_WORLD);
                 next_tile++;
             } else {
-                // Sem mais trabalho: envia parada
+                // Sem mais tarefas pendentes: sinaliza parada para o worker livre
                 MPI_Send(NULL, 0, MPI_BYTE, status.MPI_SOURCE, TAG_STOP, MPI_COMM_WORLD);
                 active_workers--;
             }
         }
 
-        free(image);
-    }
+        // Escreve uma única vez do arquivo ppm final reduzindo I/O
+        printf("[Mestre] Gravando arquivo de imagem final...\n");
+        FILE *fp = fopen("mandelbrot_final.ppm", "wb");
+        if (fp) {
+            fprintf(fp, "P6\n%d %d\n255\n", hxres, hyres);
+            fwrite(image, 1, hxres * hyres * 3, fp);
+            fclose(fp);
+            printf("[Mestre] Arquivo 'mandelbrot_final.ppm' gerado.\n");
+        } else {
+            fprintf(stderr, "[Erro] Falha ao abrir o arquivo para escrita.\n");
+        }
 
+        free(image);
+    } 
     else {
+        // Aloca o buffer máximo uma única vez fora do laço
+        int max_buf_size = square_size * square_size * 3;
+        unsigned char *buf = malloc(max_buf_size);
+        if (!buf) {
+            fprintf(stderr, "Erro alocação buf no rank %d\n", rank);
+            MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
+        }
+
         while (1) {
             MPI_Status status;
             Tile t;
             MPI_Recv(&t, sizeof(Tile), MPI_BYTE, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
 
             if (status.MPI_TAG == TAG_STOP) break;
-
-            unsigned char *buf = malloc(t.w * t.h * 3);
-            if (!buf) {
-                fprintf(stderr, "Erro alocação buf no rank %d\n", rank);
-                MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
-            }
 
             int idx = 0;
             for (int y = t.y; y < t.y + t.h; ++y) {
@@ -126,26 +128,32 @@ int main(int argc, char *argv[]) {
                     double cy = ((double)y / hyres - 0.5) / magnify * 3.0;
                     double zx = 0.0, zy = 0.0, zx2;
                     int it;
+                    
                     for (it = 0; it < itermax; ++it) {
                         zx2 = zx * zx - zy * zy + cx;
                         zy  = 2.0 * zx * zy + cy;
                         zx  = zx2;
                         if (zx * zx + zy * zy > 4.0) break;
                     }
+                    
                     if (it < itermax) {
-                        buf[idx++] = 0;   buf[idx++] = 255; buf[idx++] = 255;
+                        buf[idx++] = 0;                                 
+                        buf[idx++] = (unsigned char)((it * 2) % 50);    
+                        buf[idx++] = (unsigned char)((it * 12) % 150);
                     } else {
-                        buf[idx++] = 180; buf[idx++] =   0; buf[idx++] =   0;
+                        // Interior do conjunto de Mandelbrot (Cor escura/Preto)
+                        buf[idx++] = 0; buf[idx++] = 0; buf[idx++] = 0;
                     }
                 }
             }
 
-            // Envia resultado
+            // Envia o cabeçalho de metadados e os dados processados de volta ao Mestre
             MPI_Send(&t, sizeof(Tile), MPI_BYTE, 0, TAG_DONE, MPI_COMM_WORLD);
             MPI_Send(buf, t.w * t.h * 3, MPI_UNSIGNED_CHAR, 0, TAG_DONE, MPI_COMM_WORLD);
-
-            free(buf);
         }
+
+        // Libera a memória uma única vez ao encerrar o processo trabalhador
+        free(buf);
     }
 
     MPI_Finalize();

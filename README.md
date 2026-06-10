@@ -2,7 +2,7 @@
 
 Esse trabalho foi realizado pelas alunas Ana Beatriz Stahl, Emanuele Thomazzoni, Gabriela Rodrigues e Luisa Becker para a Atividade Acadêmica de Computação de Alto Desempenho ministrada pelo Prof. Dr. Rodrigo da Rosa Righi.
 
-O obtivo é fazer a geração paralela do conjunto de Mandelbrot em C com MPI, utilizando esquema mestre-trabalhador com balanceamento dinâmico de carga. A cada tile computado, um frame parcial PPM é salvo, permitindo visualizar a construção da imagem ao longo do tempo e evidenciar o paralelismo em ação.
+O objetivo é fazer a geração paralela do conjunto de Mandelbrot em C com MPI, utilizando esquema mestre-trabalhador com balanceamento dinâmico de carga. A cada tile computado, um frame parcial PPM é salvo, permitindo visualizar a construção da imagem ao longo do tempo e evidenciar o paralelismo em ação.
 
 ---
 
@@ -138,8 +138,14 @@ Para um tile de `50×50`, isso representa `7.500 bytes` de dados. O overhead é 
 
 ## 5. Parâmetros
 
-```
+**Linux/macOS:**
+```bash
 mpirun -np <processos> ./mandelbrot <square_size> <max_iter> <magnify>
+```
+
+**Windows (MS-MPI):**
+```bash
+mpiexec -n <processos> mandelbrot <square_size> <max_iter> <magnify>
 ```
 
 | Parâmetro | Tipo | Descrição |
@@ -200,14 +206,26 @@ mpicc -O2 -o mandelbrot mandelbrot.c -lm
 
 ### Executar
 
+**Linux/macOS:**
 ```bash
 mpirun -np <processos> ./mandelbrot <square_size> <max_iter> <magnify>
 ```
 
+**Windows (MS-MPI):**
+```bash
+mpiexec -n <processos> mandelbrot <square_size> <max_iter> <magnify>
+```
+
 ### Exemplo básico
 
+**Linux/macOS:**
 ```bash
 mpirun -np 4 ./mandelbrot 50 1000 1.0
+```
+
+**Windows (MS-MPI):**
+```bash
+mpiexec -n 4 mandelbrot 50 1000 1.0
 ```
 
 ---
@@ -235,39 +253,60 @@ O formato PPM (*Portable Pixmap*) é sem compressão e pode ser aberto no GIMP, 
 
 ### Variando o número de processos
 
+**Linux/macOS:**
 ```bash
 time mpirun -np 2 ./mandelbrot 50 2000 1.0
 time mpirun -np 4 ./mandelbrot 50 2000 1.0
 time mpirun -np 8 ./mandelbrot 50 2000 1.0
 ```
 
+**Windows (MS-MPI):**
+```bash
+mpiexec -n 2 mandelbrot 50 2000 1.0
+mpiexec -n 4 mandelbrot 50 2000 1.0
+mpiexec -n 8 mandelbrot 50 2000 1.0
+```
+
 ### Variando o tamanho do tile
 
+**Linux/macOS:**
 ```bash
-# Tiles pequenos: muitos frames, balanceamento fino
 mpirun -np 4 ./mandelbrot 10 1000 1.0
-
-# Tiles médios
 mpirun -np 4 ./mandelbrot 50 1000 1.0
-
-# Tiles grandes: poucos frames, menos overhead
 mpirun -np 4 ./mandelbrot 100 1000 1.0
+```
+
+**Windows (MS-MPI):**
+```bash
+mpiexec -n 4 mandelbrot 10 1000 1.0
+mpiexec -n 4 mandelbrot 50 1000 1.0
+mpiexec -n 4 mandelbrot 100 1000 1.0
 ```
 
 ### Variando a complexidade
 
+**Linux/macOS:**
 ```bash
-# Baixa complexidade
 mpirun -np 4 ./mandelbrot 50 100 1.0
-
-# Alta complexidade
 mpirun -np 4 ./mandelbrot 50 5000 1.0
+```
+
+**Windows (MS-MPI):**
+```bash
+mpiexec -n 4 mandelbrot 50 100 1.0
+mpiexec -n 4 mandelbrot 50 5000 1.0
 ```
 
 ### Zoom profundo
 
+**Linux/macOS:**
 ```bash
 mpirun -np 8 ./mandelbrot 25 8000 10.0
+```
+
+**Windows (MS-MPI):**
+```bash
+mpiexec -n 8 mandelbrot 25 8000 10.0
 ```
 
 ---
@@ -302,7 +341,7 @@ convert mandelbrot_final.ppm mandelbrot_final.png
 
 | Dependência | Uso | Obrigatória |
 |---|---|---|
-| OpenMPI ou MPICH | Execução paralela MPI | Sim |
+| OpenMPI, MPICH ou MS-MPI | Execução paralela MPI | Sim |
 | `mpicc` | Compilação | Sim |
 | ImageMagick | Conversão PPM → GIF/PNG | Não |
 | ffmpeg | Conversão PPM → MP4 | Não |

@@ -6,6 +6,10 @@
 const int hxres = 500;
 const int hyres = 500;
 
+//tags pra que o receptor e remetente saibam o proposito da mensagem sem precisar ver o conteudo
+//tag_work: mestre to worker - trabalho a ser feito
+//tag_done: worker to mestre - trabalho concluido
+//tag_stop: mestre to worker - parar de enviar trabalho - encerrar
 enum Tags { TAG_WORK = 1, TAG_DONE = 2, TAG_STOP = 3 };
 
 typedef struct {
@@ -14,11 +18,14 @@ typedef struct {
 
 int main(int argc, char *argv[]) {
     MPI_Init(&argc, &argv);
-
+// Inicializa o MPI (computacao paralela)
     int rank, size;
+//mpo_comm_rank atribui um numero que seria o rank a cada processo
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); // 0 = mestre, >0 = trabalhador)
     MPI_Comm_size(MPI_COMM_WORLD, &size); 
 
+//o processo de rank 0 entra no bloco if se tornando o mestre
+//todos os outros processos com outro rank caem no else e ficam como workers
     if (argc < 4) {
         if (rank == 0)
             fprintf(stderr, "Uso: %s <square_size> <max_iter> <magnify>\n", argv[0]);
@@ -41,31 +48,40 @@ int main(int argc, char *argv[]) {
             fprintf(stderr, "Erro alocação imagem\n");
             MPI_Abort(MPI_COMM_WORLD, EXIT_FAILURE);
         } 
-
+        //zera a imagem preenchendo tudo com preto (zeros)
         memset(image, 0, hxres * hyres * 3);
 
+        //variaveis de controle
         int next_tile      = 0;
         int active_workers = size - 1; // Menos o mestre
+        //contador de frames salvos
         int frame_id       = 0;
 
-        // Distribui o primeiro lote de trabalho pros trabalhadores disponíveis
+        // loop que envia um tile para cada worker disponível para comecar o trabalho
+        //comeca no rank 1 para ignorar o mestre 
         for (int dest = 1; dest < size && next_tile < total_tiles; ++dest) {
+            //calculo de coordenadas do tile
+            //imagem dividida em grade de tiles square x horizontal, square y vertical
+            // * square size para coonverter pra coordenadas de pixel
             Tile t = {
                 .x = (next_tile % squares_x) * square_size,
                 .y = (next_tile / squares_x) * square_size
             };
             t.w = (t.x + square_size <= hxres) ? square_size : (hxres - t.x);
             t.h = (t.y + square_size <= hyres) ? square_size : (hyres - t.y);
-            
+            //envio do tile
             MPI_Send(&t, sizeof(Tile), MPI_BYTE, dest, TAG_WORK, MPI_COMM_WORLD);
             next_tile++;
         }
 
-        // Bag of Tasks, quem terminar primeiro, ganha uma task nova
+        // bag of Tasks, quem terminar primeiro, ganha uma task nova
+        // usa o mpi_any_source pra dizer que pode receber de qualquer worker (ou seja qualquer rank)
+        // depois checa qual worker enviou os dados vendo o status.MPI_SOURCE pois quer dizer que aquele worker ta livre agora
         while (active_workers > 0) {
             MPI_Status status;
             Tile meta;
-            
+            //mestre fica bloqueado esperando worker enviar a TAG_DONE
+            //nao precisa ficar busy waiting, o MPI_Recv vai dormir até que dados cheguem
             MPI_Recv(&meta, sizeof(Tile), MPI_BYTE, MPI_ANY_SOURCE, TAG_DONE, MPI_COMM_WORLD, &status);
 
             int size_buf = meta.w * meta.h * 3;

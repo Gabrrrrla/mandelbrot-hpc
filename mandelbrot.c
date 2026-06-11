@@ -72,7 +72,7 @@ int main(int argc, char *argv[]) {
             unsigned char *buf = malloc(size_buf);
             MPI_Recv(buf, size_buf, MPI_UNSIGNED_CHAR, status.MPI_SOURCE, TAG_DONE, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            for (int dy = 0; dy < meta.h; ++dy) {
+            for (int dy = 0; dy < meta.h; ++dy) { // Percorre linhas do tile pra ajustar as linhas do tile na imagem global
                 int dst_offset = ((meta.y + dy) * hxres + meta.x) * 3;
                 int src_offset = (dy * meta.w) * 3;
                 memcpy(&image[dst_offset], &buf[src_offset], meta.w * 3);
@@ -98,8 +98,8 @@ int main(int argc, char *argv[]) {
                     .x = (next_tile % squares_x) * square_size,
                     .y = (next_tile / squares_x) * square_size
                 };
-                t.w = (t.x + square_size <= hxres) ? square_size : (hxres - t.x);
-                t.h = (t.y + square_size <= hyres) ? square_size : (hyres - t.y);
+                t.w = (t.x + square_size <= hxres) ? square_size : (hxres - t.x); //calcula largura
+                t.h = (t.y + square_size <= hyres) ? square_size : (hyres - t.y); //altura
                 
                 MPI_Send(&t, sizeof(Tile), MPI_BYTE, status.MPI_SOURCE, TAG_WORK, MPI_COMM_WORLD);
                 next_tile++;
@@ -148,7 +148,7 @@ int main(int argc, char *argv[]) {
             // Percorre cada pixel do tile recebido
             for (int y = t.y; y < t.y + t.h; ++y) {
                 for (int x = t.x; x < t.x + t.w; ++x) {
-                    
+                    // Mapeando pixel p numero complexo
                     double cx = ((double)x / hxres - 0.5) / magnify * 3.0 - 0.7;
                     double cy = ((double)y / hyres - 0.5) / magnify * 3.0;
                     double zx = 0.0, zy = 0.0, zx2;
@@ -156,14 +156,14 @@ int main(int argc, char *argv[]) {
 
                     // Mandelbrot iterativamente
                     for (it = 0; it < itermax; ++it) {
-                        zx2 = zx * zx - zy * zy + cx;
-                        zy  = 2.0 * zx * zy + cy;
-                        zx  = zx2;
+                        zx2 = zx * zx - zy * zy + cx; // parte real
+                        zy  = 2.0 * zx * zy + cy; // parte imaginária
+                        zx  = zx2; // atualiza real
                         if (zx * zx + zy * zy > 4.0) break;
                     }
 
                     // Define a cor do pixel dependendo de quão rápido ele escapou
-                    if (it < itermax) {
+                    if (it < itermax) { // se escapou
                         buf[idx++] = 0;           // RGB               
                         buf[idx++] = (unsigned char)((it * 2) % 50);    
                         buf[idx++] = (unsigned char)((it * 12) % 150); 
@@ -174,8 +174,8 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            MPI_Send(&t, sizeof(Tile), MPI_BYTE, 0, TAG_DONE, MPI_COMM_WORLD);
-            MPI_Send(buf, t.w * t.h * 3, MPI_UNSIGNED_CHAR, 0, TAG_DONE, MPI_COMM_WORLD);
+            MPI_Send(&t, sizeof(Tile), MPI_BYTE, 0, TAG_DONE, MPI_COMM_WORLD); // envia primeiro o metadado 
+            MPI_Send(buf, t.w * t.h * 3, MPI_UNSIGNED_CHAR, 0, TAG_DONE, MPI_COMM_WORLD); // envia dados
         }
 
         free(buf);
